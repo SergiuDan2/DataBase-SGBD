@@ -1,0 +1,183 @@
+select * from customers;
+select * from employees;
+select * from offices;
+select * from orderdetails;
+select * from orders;
+select * from payments;
+select * from productlines;
+select * from products;
+
+//functie care returneaza cat a platit, in total, clientul introdus
+DELIMITER $$
+
+CREATE FUNCTION SumaTotalClient(
+	nr_client int(11)
+) 
+RETURNS int(20)
+DETERMINISTIC
+BEGIN
+    DECLARE total decimal(10,2);
+
+	select sum(amount) into total from payments where customerNumber=nr_client;
+    
+	RETURN total;
+END$$
+DELIMITER ;
+
+//procedura care calculeaza numarul de zile trecute pana la livrarea comenzii. Daca nr de zile depaseste numarul de 3 lucratoare
+se va face un discount de 1000 de lei, pentru depasirea termenului de livrare 
+
+SELECT DATEDIFF("2017-06-25", "2017-06-15");
+GROUP BY orderNumber HAVING COUNT(orderNumber) > 1
+select orderNumber, sum(quantityOrdered*priceEach) as 'cost_total' from orderdetails group by orderNumber;
+
+DELIMITER //
+
+CREATE PROCEDURE livrari(IN  nr_pcomanda int(10),IN  nr_ucomanda int(10))
+BEGIN
+    declare t1,t2 date;
+    declare i,p int(10);
+    set i=nr_pcomanda;
+    
+    select orderNumber, sum(quantityOrdered*priceEach) as 'cost_total' from orderdetails group by orderNumber;
+    
+	WHILE i<=nr_ucomanda DO
+		select shippedDate into t1 from orders where orderNumber=i;
+        select orderDate into t2 from orders where orderNumber=i;
+        SELECT DATEDIFF(t1,t2) into p;
+        if p>3 then
+			select orderNumber, sum(quantityOrdered*priceEach)-1000 as 'cost_total',"Discount aplicat" as 'Reducere' from orderdetails where orderNumber=i;
+		else
+			select orderNumber, sum(quantityOrdered*priceEach) as 'cost_total',"Discount neaplicat" as 'Reducere' from orderdetails where orderNumber=i;
+		end if;
+        set i=i+1;
+	END WHILE;
+    
+    
+END //
+
+DELIMITER ;
+
+//functie care calculeaza daca s-a respectat perioada de 3 zile lucratoare pentru a livra totalitatea comenzilor
+DELIMITER $$
+
+CREATE FUNCTION timp_livrare(nr_pcomanda int(10), nr_ucomanda int(10)
+) 
+RETURNS varchar(50)
+BEGIN
+    DECLARE ret varchar(50);
+    declare t1,t2 date;
+    declare i,p int(10);
+    set ret="Perioada livrare respectata";
+    set i=nr_pcomanda;
+    WHILE i<=nr_ucomanda DO
+	select shippedDate into t1 from orders where orderNumber=i;
+        select orderDate into t2 from orders where orderNumber=i;
+        SELECT DATEDIFF(t1,t2) into p;
+        if p>3 then
+			set ret="Perioada livrare nerespectata";
+		end if;
+		set i=i+1;
+    END WHILE;
+    
+	RETURN ret;
+END$$
+DELIMITER ;
+
+//functie care ne arata daca o comanda a fost livrata sau nu
+
+DELIMITER $$
+
+CREATE FUNCTION status_comanda(nr_comanda int(10)
+) 
+RETURNS varchar(50)
+BEGIN
+    DECLARE ret,comanda varchar(50);
+
+    set ret="Comanda a fost livrata";
+    select status into comanda from orders where orderNumber=nr_comanda;
+    if comanda="Shipped" then
+		return ret;
+	else
+		set ret="Comanda in curs de livrare";
+        return ret;
+	end if;
+	
+END$$
+DELIMITER ;
+
+
+//procedura (cursor) care afiseaza, pe un rand, lista cu emailuri
+
+DELIMITER $$
+CREATE PROCEDURE listaEmail (
+	INOUT emailList varchar(4000)
+)
+BEGIN
+	DECLARE break INTEGER DEFAULT 0;
+	DECLARE emailAddress varchar(100) DEFAULT "";
+
+	DEClARE curEmail CURSOR FOR SELECT email FROM employees;
+
+	DECLARE CONTINUE HANDLER FOR NOT FOUND SET break = 1;
+
+	OPEN curEmail;
+
+	email: LOOP
+		FETCH curEmail INTO emailAddress;
+		IF break = 1 THEN 
+			LEAVE email;
+		END IF;
+		SET emailList = CONCAT(emailAddress,";",emailList);
+	END LOOP email;
+	CLOSE curEmail;
+
+END$$
+DELIMITER ;
+
+
+//procedura care afiseaza functiile si numarul de angajati de pe o anumita functie
+
+DELIMITER //
+
+CREATE PROCEDURE functii()
+BEGIN
+    select jobTitle as 'Lista functii' ,count(*) as 'Numar functii' from employees group by jobTitle;
+END //
+
+DELIMITER ;
+
+//trigger care afiseaza intr un tabel 'demiteri' angajatii care sunt demisi(delete trigger)
+CREATE TRIGGER demitere_emp
+    BEFORE DELETE ON employees
+    FOR EACH ROW 
+ INSERT INTO demiteri
+ SET action = 'delete',
+     employeeNumber = OLD.employeeNumber,
+     prenume = OLD.lastName,
+     nume = OLD.firstName,
+     data_demiterii = NOW();
+
+//trigger care afiseaza intr un tabel 'angajari' angajatii angajati dintr un anumit punct(insert trigger)
+CREATE TRIGGER angajari_emp
+    AFTER INSERT ON employees
+    FOR EACH ROW 
+ INSERT INTO angajari
+ SET action = 'insert',
+     prenume = NEW.lastName,
+     nume = NEW.firstName,
+     data_angajarii = NOW();
+
+//trigger care creste pretul per produs, daca stocul este unul limitat(<10)
+DELIMITER $$
+
+CREATE TRIGGER stoc_pret
+BEFORE UPDATE
+ON products FOR EACH ROW
+BEGIN
+    if NEW.quantityInStock<10 then
+		set NEW.buyPrice=OLD.buyPrice+10;
+	end if;
+END$$
+
+DELIMITER ;
